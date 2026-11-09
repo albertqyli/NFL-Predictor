@@ -1,0 +1,66 @@
+{
+  "feature_cols": [
+    "off_epa_ewm_edge",
+    "def_epa_ewm_edge",
+    "net_epa_season_edge",
+    "to_margin_edge",
+    "elo_edge",
+    "injury_edge",
+    "neutral_site"
+  ],
+  "seasons": [
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024,
+    2025,
+    2026
+  ],
+  "elo_start_season": 2015,
+  "C": 0.03,
+  "n_rows": 1999,
+  "home_win_rate": 0.5297648824412207,
+  "coefficients": {
+    "off_epa_ewm_edge": 1.5630641935976974,
+    "def_epa_ewm_edge": 0.4726171858480161,
+    "net_epa_season_edge": 0.9931568910759931,
+    "to_margin_edge": -0.07234612967463924,
+    "elo_edge": 0.002799927776598741,
+    "injury_edge": 0.05872128003302988,
+    "neutral_site": -0.2828247502230448
+  },
+  "backtest": {
+    "C": 0.03,
+    "test_seasons": [
+      2021,
+      2022,
+      2023,
+      2024,
+      2025,
+      2026
+    ],
+    "pooled": {
+      "home_baseline": {
+        "accuracy": 0.5372733378106112,
+        "log_loss": 0.691144944857233,
+        "brier": 0.24899933835102392,
+        "n": 1489
+      },
+      "elo_only": {
+        "accuracy": 0.6420416386836804,
+        "log_loss": 0.6397432783580723,
+        "brier": 0.22421081619089422,
+        "n": 1489
+      },
+      "full_model": {
+        "accuracy": 0.6474143720617864,
+        "log_loss": 0.635461498740833,
+        "brier": 0.2222063614567095,
+        "n": 1489
+      }
+    }
+  },
+  "trained_at": "2026-11-09T19:51:33+00:00"
+}
