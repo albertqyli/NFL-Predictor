@@ -233,6 +233,7 @@ class InjuryModel:
         self.live_key = live_key
         self._score_cache: Dict[tuple, Dict[str, float]] = {}
         self._snap_cache: Dict[tuple, Dict[tuple, float]] = {}
+        self._player_cache: Dict[tuple, Dict[str, list]] = {}
 
     def has_data(self, season: int, week: int) -> bool:
         return (int(season), int(week)) in self._weeks
@@ -263,18 +264,35 @@ class InjuryModel:
             return self._score_cache[key]
         out = self._out.get(key)
         scores: Dict[str, float] = {}
+        players: Dict[str, list] = {}
         if out is not None and len(out):
             caliber = self._caliber(season, week)
             for r in out.itertuples(index=False):
-                w = POS_WEIGHTS.get(_normalize_pos(r.position), 0.6)
-                pct = caliber.get((r.team, str(r.player_name).strip()), DEFAULT_SNAP_PCT)
+                pos = _normalize_pos(r.position)
+                w = POS_WEIGHTS.get(pos, 0.6)
+                name = str(r.player_name).strip()
+                pct = caliber.get((r.team, name), DEFAULT_SNAP_PCT)
                 mult = float(np.clip(pct / 50.0, 0.5, 2.0))
-                scores[r.team] = scores.get(r.team, 0.0) + w * mult
+                impact = w * mult
+                scores[r.team] = scores.get(r.team, 0.0) + impact
+                players.setdefault(r.team, []).append(
+                    {"name": name, "position": pos, "impact": float(impact)})
+            for v in players.values():
+                v.sort(key=lambda d: -d["impact"])
         self._score_cache[key] = scores
+        self._player_cache[key] = players
         return scores
 
     def score(self, season: int, week: int, team: str) -> float:
         return self._table(int(season), int(week)).get(team, 0.0)
+
+    def out_players(self, season: int, week: int, team: str,
+                    min_impact: float = 1.2, limit: int = 5) -> list:
+        """Notable OUT players for a team (biggest estimated impact first)."""
+        key = (int(season), int(week))
+        self._table(*key)
+        return [p for p in self._player_cache[key].get(team, [])
+                if p["impact"] >= min_impact][:limit]
 
 
 # =============================================================================

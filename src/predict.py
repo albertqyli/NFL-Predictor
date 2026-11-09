@@ -83,8 +83,8 @@ def load_context(season: int, elo_start: int = ELO_START_SEASON, use_live_injuri
     return Context(season=season, store=store, schedules=sched, next_week=nxt)
 
 
-def _explain(feature_cols, raw_x, contrib, home: str, away: str, neutral: bool) -> str:
-    """Narrate the largest logit contributions. Edges are positive-for-home, so the
+def _explain_lines(feature_cols, raw_x, contrib, home: str, away: str, neutral: bool) -> list:
+    """The largest logit contributions as short sentences. Edges are positive-for-home, so the
     sign of each contribution tells us exactly who the feature favours."""
     lines = []
     for idx in np.argsort(-np.abs(contrib)):
@@ -106,7 +106,15 @@ def _explain(feature_cols, raw_x, contrib, home: str, away: str, neutral: bool) 
         lines.append("The teams look evenly matched on the model's inputs.")
     lines.append("This is a neutral-site game, so there is no home-field boost."
                  if neutral else f"{home} also gets the usual home-field boost.")
-    return " ".join(lines)
+    return lines
+
+
+def _explain(*args, **kwargs) -> str:
+    return " ".join(_explain_lines(*args, **kwargs))
+
+
+# An injury section is only shown when injuries move the win probability by at least this much.
+INJURY_MIN_SWING_PTS = 1.0
 
 
 def predict_matchup(year: int, week: int, home_team: str, away_team: str,
@@ -126,21 +134,48 @@ def predict_matchup(year: int, week: int, home_team: str, away_team: str,
         if t not in ctx.store.teams:
             raise ValueError(f"Unknown team code: {t}")
 
+    cols = meta["feature_cols"]
     X = ctx.store.matchup_frame(int(year), int(week), home_team, away_team, neutral=neutral_site)
-    Xv = X[meta["feature_cols"]].astype(float)
+    Xv = X[cols].astype(float)
 
     proba_home = float(model.predict_proba(Xv)[0, 1])
     clf, scaler = model.named_steps["clf"], model.named_steps["scaler"]
     # linear term of each feature on the raw scale: coef/scale * x  (sign == who it favours)
     contrib = Xv.iloc[0].to_numpy() * (clf.coef_[0] / scaler.scale_)
 
-    explanation = _explain(meta["feature_cols"], Xv.iloc[0].to_numpy(), contrib,
-                           home_team.strip().upper(), away_team.strip().upper(), bool(neutral_site))
+    home_lbl, away_lbl = home_team.strip().upper(), away_team.strip().upper()
+    reasons = _explain_lines(cols, Xv.iloc[0].to_numpy(), contrib, home_lbl, away_lbl, bool(neutral_site))
+
+    # How much do injuries matter? Re-predict with the injury feature neutralised.
+    Xn = Xv.copy()
+    Xn["injury_edge"] = 0.0
+    proba_no_inj = float(model.predict_proba(Xn)[0, 1])
+    swing_pts = (proba_home - proba_no_inj) * 100.0          # >0: injuries help the home team
+    flips = (proba_home >= 0.5) != (proba_no_inj >= 0.5)
+    inj = ctx.store.injuries
+    show_inj = inj.has_data(int(year), int(week)) and (abs(swing_pts) >= INJURY_MIN_SWING_PTS or flips)
+    out_players = {"home": [], "away": []}
+    if show_inj:
+        out_players = {
+            "home": inj.out_players(int(year), int(week), home_c),
+            "away": inj.out_players(int(year), int(week), away_c),
+        }
+        if not (out_players["home"] or out_players["away"]):
+            show_inj = False
+
     return {
         "home_win_prob": proba_home,
         "away_win_prob": 1.0 - proba_home,
         "projected_winner": home_team if proba_home >= 0.5 else away_team,
-        "explanation": explanation,
-        "injury_note": ctx.store.injuries.note(int(year), int(week)),
-        "factors": {f: float(c) for f, c in zip(meta["feature_cols"], contrib)},
+        "explanation": " ".join(reasons),
+        "reasons": reasons,
+        "injury_note": inj.note(int(year), int(week)),
+        "injury_data_available": inj.has_data(int(year), int(week)),
+        "injuries": {
+            "show": bool(show_inj),
+            "swing_pts": float(swing_pts),           # + favours home, - favours away
+            "flips_winner": bool(flips),
+            "out_players": out_players,
+        },
+        "factors": {f: float(c) for f, c in zip(cols, contrib)},
     }
